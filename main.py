@@ -711,7 +711,7 @@ def send_eth(from_wallet_name, to_address, amount_in_eth):
             'value': amount_in_wei,
             'gas': 21000,  # Standard gas limit for ETH transfers
             'gasPrice': w3.eth.gas_price,
-            'chainId': 1,  # Mainnet
+            #'chainId': ,  # Mainnet
         }
 
         # Sign the transaction
@@ -926,20 +926,6 @@ tools = [
         "input_schema": {
             "type": "object",
             "properties": {}
-        }
-    },
-    {
-        "name": "get_eth_wallet_details",
-        "description": "Retrieve the details of a specific Ethereum wallet by its name.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "wallet_name": {
-                    "type": "string",
-                    "description": "The name of the wallet to retrieve"
-                }
-            },
-            "required": ["wallet_name"]
         }
     },
     {

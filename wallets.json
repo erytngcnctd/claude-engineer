@@ -1,5 +1,9 @@
 {
-  "ETHWallet_2024_08_27_174238": {
+  "Jane": {
+    "address": "0x7376d5B4CdB76841078F2C95DE5635c525ee241b",
+    "private_key": "0xaab1936bb3f2effde0661f9bba6da7ce8edb00caccea701de14ae9ec4ad701bc"
+  },
+  "Bob": {
     "address": "0xdb1A595b6577C3830Fb6A076b0e661f7522c073c",
     "private_key": "0x343c725eeeced4bc9d41c3acf1eb51d9809a0a975c08ab93f504aa5903fb72f5"
   }
