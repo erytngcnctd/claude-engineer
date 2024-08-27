@@ -614,60 +614,20 @@ def stop_process(process_id):
 # Connect to an Ethereum node (replace with your own node URL if needed)
 w3 = Web3(Web3.HTTPProvider('http://localhost:8400'))
 
-# Global variable to store the encryption key
-encryption_key = None
-
-def initialize_encryption():
-    global encryption_key
-    key_file = "encryption_key.key"
-    if os.path.exists(key_file):
-        with open(key_file, "rb") as f:
-            encryption_key = f.read()
-    else:
-        encryption_key = Fernet.generate_key()
-        with open(key_file, "wb") as f:
-            f.write(encryption_key)
-    
-    # Ensure the key file has restricted permissions
-    os.chmod(key_file, 0o600)
-
-def encrypt_data(data):
-    if not encryption_key:
-        raise ValueError("Encryption key not initialized")
-    f = Fernet(encryption_key)
-    return f.encrypt(data.encode()).decode()
-
-def decrypt_data(encrypted_data):
-    if not encryption_key:
-        raise ValueError("Encryption key not initialized")
-    f = Fernet(encryption_key)
-    return f.decrypt(encrypted_data.encode()).decode()
-
-def create_eth_wallet(wallet_name=None, password=None):
+def create_eth_wallet(wallet_name=None):
     if not wallet_name:
         wallet_name = f"ETHWallet_{datetime.datetime.now().strftime('%Y_%m_%d_%H%M%S')}"
     elif not isinstance(wallet_name, str):
         raise ValueError("Invalid wallet name")
     
-    priv = secrets.token_bytes(32)
-    private_key = priv.hex()
-    account = Account.from_key(private_key)
-    
-    # Use custom password if provided, otherwise use the global encryption key
-    if password:
-        encryption_func = lambda data: Fernet(Fernet.generate_key()).encrypt(data.encode()).decode()
-    else:
-        encryption_func = encrypt_data
+    account = Account.create()
     
     wallet_data = {
         "address": account.address,
-        "encrypted_private_key": encryption_func(private_key)
+        "private_key": account.key.hex()
     }
     
-    if password:
-        wallet_data["custom_encrypted"] = True
-    
-    wallets_file = "encrypted_wallets.json"
+    wallets_file = "wallets.json"
     try:
         if os.path.exists(wallets_file):
             with open(wallets_file, 'r') as f:
@@ -695,7 +655,7 @@ def create_eth_wallet(wallet_name=None, password=None):
     }
 
 def list_eth_wallets():
-    wallets_file = "encrypted_wallets.json"
+    wallets_file = "wallets.json"
     try:
         if os.path.exists(wallets_file):
             with open(wallets_file, 'r') as f:
@@ -711,7 +671,7 @@ def get_eth_wallet_details(wallet_name):
     if not wallet_name or not isinstance(wallet_name, str):
         raise ValueError("Invalid wallet name")
     
-    wallets_file = "encrypted_wallets.json"
+    wallets_file = "wallets.json"
     try:
         if os.path.exists(wallets_file):
             with open(wallets_file, 'r') as f:
@@ -721,7 +681,7 @@ def get_eth_wallet_details(wallet_name):
                 return {
                     "name": wallet_name,
                     "address": wallet_data["address"],
-                    "private_key": decrypt_data(wallet_data["encrypted_private_key"])
+                    "private_key": wallet_data["private_key"]
                 }
         return None
     except Exception as e:
@@ -771,7 +731,7 @@ def send_eth(from_wallet_name, to_address, amount_in_eth):
         return f"Error sending transaction: {str(e)}"
 
 def get_balance(wallet_name):
-    wallets_file = "encrypted_wallets.json"
+    wallets_file = "wallets.json"
     try:
         with open(wallets_file, 'r') as f:
             wallets = json.load(f)
@@ -931,20 +891,15 @@ tools = [
     },
     {
         "name": "create_eth_wallet",
-        "description": "Create a new Ethereum wallet with a given name and securely store its details.",
+        "description": "Create a new Ethereum wallet with a given name or generate a default name if none is provided.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "wallet_name": {
                     "type": "string",
-                    "description": "A unique name for the new wallet"
-                },
-                "password": {
-                    "type": "string",
-                    "description": "Optional custom password for encrypting the wallet"
+                    "description": "An optional unique name for the new wallet. If not provided, a default name will be generated."
                 }
-            },
-            "required": ["wallet_name"]
+            }
         }
     },
     {
@@ -1028,7 +983,7 @@ tools = [
 from typing import Dict, Any
 
 def rename_wallet(old_name, new_name):
-    wallets_file = "encrypted_wallets.json"
+    wallets_file = "wallets.json"
     try:
         with open(wallets_file, 'r') as f:
             wallets = json.load(f)
@@ -1086,7 +1041,7 @@ async def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, 
             if process_id in running_processes:
                 result += "\n\nNote: The process is still running in the background."
         elif tool_name == "create_eth_wallet":
-            wallet = create_eth_wallet(tool_input["wallet_name"], tool_input.get("password"))
+            wallet = create_eth_wallet(tool_input.get("wallet_name"))
             result = f"New Ethereum wallet created:\nName: {wallet['name']}\nAddress: {wallet['address']}"
         elif tool_name == "rename_wallet":
             result = rename_wallet(tool_input["old_name"], tool_input["new_name"])
@@ -1622,5 +1577,4 @@ async def main():
             response, _ = await chat_with_claude(user_input)
 
 if __name__ == "__main__":
-    initialize_encryption()
     asyncio.run(main())
