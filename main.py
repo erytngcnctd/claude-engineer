@@ -154,6 +154,7 @@ Available tools and their optimal use cases:
 10. create_eth_wallet: Create a new Ethereum wallet and return its address and private key.
 11. send_eth: Send Ethereum (ETH) from a stored wallet to a specified address.
 12. get_balance: Get the balance of a stored Ethereum wallet.
+13. get_chain_id: Get the EVM chain ID for a given blockchain network name.
 
 Tool Usage Guidelines:
 - Always use the most appropriate tool for the task at hand.
@@ -166,6 +167,7 @@ Tool Usage Guidelines:
 - Use create_eth_wallet when you need to generate a new Ethereum wallet for the user.
 - Use send_eth to send Ethereum (ETH) from a stored wallet to a specified address.
 - Use get_balance to check the balance of a stored Ethereum wallet.
+- Use get_chain_id to get the EVM chain ID for a given blockchain network name.
 
 Error Handling and Recovery:
 - If a tool operation fails, carefully analyze the error message and attempt to resolve the issue.
@@ -728,12 +730,68 @@ def get_eth_wallet_details(wallet_name):
         logging.error(f"Error getting wallet details: {str(e)}")
         raise
 
-def send_eth(from_wallet_name, to_address, amount_in_eth):
+def get_provider_url_for_chain_id(chain_id):
+    chain_id = int(chain_id)  # Ensure chain_id is an integer
+    chain_providers = {
+        1: "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Ethereum Mainnet
+        5: "https://goerli.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Goerli Testnet
+        11155111: "https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Sepolia Testnet
+        137: "https://polygon-rpc.com",  # Polygon Mainnet
+        80001: "https://rpc-mumbai.maticvigil.com",  # Mumbai Testnet (Polygon)
+        42161: "https://arb1.arbitrum.io/rpc",  # Arbitrum One
+        421613: "https://goerli-rollup.arbitrum.io/rpc",  # Arbitrum Goerli
+        10: "https://mainnet.optimism.io",  # Optimism
+        420: "https://goerli.optimism.io",  # Optimism Goerli
+        43114: "https://api.avax.network/ext/bc/C/rpc",  # Avalanche C-Chain
+        43113: "https://api.avax-test.network/ext/bc/C/rpc",  # Avalanche Fuji Testnet
+        56: "https://bsc-dataseed.binance.org",  # Binance Smart Chain
+        97: "https://data-seed-prebsc-1-s1.binance.org:8545",  # Binance Smart Chain Testnet
+    }
+    return chain_providers.get(chain_id, "http://localhost:8545")  # Default to local node if not found
+
+# Update the get_balance function to use the new get_provider_url_for_chain_id function
+def get_balance(wallet_name, chain_id=None):
+    wallets_file = "wallets.json"
+    try:
+        with open(wallets_file, 'r') as f:
+            wallets = json.load(f)
+        
+        if wallet_name not in wallets:
+            raise ValueError(f"Wallet '{wallet_name}' does not exist")
+        
+        wallet_address = wallets[wallet_name]['address']
+        
+        # If chain_id is provided, update the Web3 provider
+        if chain_id is not None:
+            provider_url = get_provider_url_for_chain_id(int(chain_id))
+            w3 = Web3(Web3.HTTPProvider(provider_url))
+        else:
+            # Use default Web3 instance if no chain_id is provided
+            w3 = Web3(Web3.HTTPProvider('http://localhost:8545'))
+        
+        balance_wei = w3.eth.get_balance(wallet_address)
+        balance_eth = w3.from_wei(balance_wei, 'ether')
+        
+        return f"Balance of wallet '{wallet_name}' (address: {wallet_address}): {balance_eth:.18f} ETH"
+    except Exception as e:
+        logging.error(f"Error getting wallet balance: {str(e)}")
+        raise
+
+# Update the send_eth function to use the new get_provider_url_for_chain_id function
+def send_eth(from_wallet_name, to_address, amount_in_eth, chain_id=None):
     try:
         # Get the wallet details
         wallet = get_eth_wallet_details(from_wallet_name)
         if not wallet:
             return f"Error: Wallet '{from_wallet_name}' not found."
+
+        # If chain_id is provided, update the Web3 provider
+        if chain_id is not None:
+            provider_url = get_provider_url_for_chain_id(int(chain_id))
+            w3 = Web3(Web3.HTTPProvider(provider_url))
+        else:
+            # Use default Web3 instance if no chain_id is provided
+            w3 = Web3(Web3.HTTPProvider('http://localhost:8545'))
 
         # Convert ETH to Wei
         amount_in_wei = w3.to_wei(amount_in_eth, 'ether')
@@ -751,8 +809,11 @@ def send_eth(from_wallet_name, to_address, amount_in_eth):
             'value': amount_in_wei,
             'gas': 21000,  # Standard gas limit for ETH transfers
             'gasPrice': w3.eth.gas_price,
-            #'chainId': ,  # Mainnet
         }
+
+        # Add chainId to the transaction if provided
+        if chain_id is not None:
+            tx['chainId'] = int(chain_id)
 
         # Sign the transaction
         signed_tx = w3.eth.account.sign_transaction(tx, wallet['private_key'])
@@ -770,7 +831,7 @@ def send_eth(from_wallet_name, to_address, amount_in_eth):
     except Exception as e:
         return f"Error sending transaction: {str(e)}"
 
-def get_balance(wallet_name):
+def get_balance(wallet_name, chain_id=None):
     wallets_file = "wallets.json"
     try:
         with open(wallets_file, 'r') as f:
@@ -780,6 +841,15 @@ def get_balance(wallet_name):
             raise ValueError(f"Wallet '{wallet_name}' does not exist")
         
         wallet_address = wallets[wallet_name]['address']
+        
+        # If chain_id is provided, update the Web3 provider
+        if chain_id is not None:
+            provider_url = get_provider_url_for_chain_id(int(chain_id))
+            w3 = Web3(Web3.HTTPProvider(provider_url))
+        else:
+            # Use default Web3 instance if no chain_id is provided
+            w3 = Web3(Web3.HTTPProvider('http://localhost:8545'))
+        
         balance_wei = w3.eth.get_balance(wallet_address)
         balance_eth = w3.from_wei(balance_wei, 'ether')
         
@@ -787,6 +857,147 @@ def get_balance(wallet_name):
     except Exception as e:
         logging.error(f"Error getting wallet balance: {str(e)}")
         raise
+
+def get_provider_url_for_chain_id(chain_id):
+    chain_id = int(chain_id)  # Ensure chain_id is an integer
+    chain_providers = {
+        1: "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Ethereum Mainnet
+        5: "https://goerli.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Goerli Testnet
+        11155111: "https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Sepolia Testnet
+        137: "https://polygon-rpc.com",  # Polygon Mainnet
+        80001: "https://rpc-mumbai.maticvigil.com",  # Mumbai Testnet (Polygon)
+        42161: "https://arb1.arbitrum.io/rpc",  # Arbitrum One
+        421613: "https://goerli-rollup.arbitrum.io/rpc",  # Arbitrum Goerli
+        10: "https://mainnet.optimism.io",  # Optimism
+        420: "https://goerli.optimism.io",  # Optimism Goerli
+        43114: "https://api.avax.network/ext/bc/C/rpc",  # Avalanche C-Chain
+        43113: "https://api.avax-test.network/ext/bc/C/rpc",  # Avalanche Fuji Testnet
+        56: "https://bsc-dataseed.binance.org",  # Binance Smart Chain
+        97: "https://data-seed-prebsc-1-s1.binance.org:8545",  # Binance Smart Chain Testnet
+    }
+    return chain_providers.get(chain_id, "http://localhost:8545")  # Default to local node if not found
+
+def get_chain_id_by_name(chain_name):
+    chain_ids = {
+        "ethereum": 1,
+        "goerli": 5,
+        "sepolia": 11155111,
+        "polygon": 137,
+        "mumbai": 80001,
+        "arbitrum": 42161,
+        "arbitrum_goerli": 421613,
+        "optimism": 10,
+        "optimism_goerli": 420,
+        "avalanche": 43114,
+        "avalanche_fuji": 43113,
+        "binance": 56,
+        "binance_testnet": 97,
+    }
+    
+    chain_name = chain_name.lower()
+    if chain_name in chain_ids:
+        return str(chain_ids[chain_name])  # Convert the integer to a string
+    else:
+        return f"Chain ID not found for {chain_name}. Available chains are: {', '.join(chain_ids.keys())}"
+
+def get_balance(wallet_name, chain_id=None):
+    wallets_file = "wallets.json"
+    try:
+        with open(wallets_file, 'r') as f:
+            wallets = json.load(f)
+        
+        if wallet_name not in wallets:
+            raise ValueError(f"Wallet '{wallet_name}' does not exist")
+        
+        wallet_address = wallets[wallet_name]['address']
+        
+        # If chain_id is provided, update the Web3 provider
+        if chain_id is not None:
+            provider_url = get_provider_url_for_chain_id(int(chain_id))
+            w3 = Web3(Web3.HTTPProvider(provider_url))
+        else:
+            # Use default Web3 instance if no chain_id is provided
+            w3 = Web3(Web3.HTTPProvider('http://localhost:8545'))
+        
+        balance_wei = w3.eth.get_balance(wallet_address)
+        balance_eth = w3.from_wei(balance_wei, 'ether')
+        
+        return f"Balance of wallet '{wallet_name}' (address: {wallet_address}): {balance_eth:.18f} ETH"
+    except Exception as e:
+        logging.error(f"Error getting wallet balance: {str(e)}")
+        raise
+
+def get_provider_url_for_chain_id(chain_id):
+    chain_id = int(chain_id)  # Ensure chain_id is an integer
+    chain_providers = {
+        1: "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Ethereum Mainnet
+        5: "https://goerli.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Goerli Testnet
+        11155111: "https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID",  # Sepolia Testnet
+        137: "https://polygon-rpc.com",  # Polygon Mainnet
+        80001: "https://rpc-mumbai.maticvigil.com",  # Mumbai Testnet (Polygon)
+        42161: "https://arb1.arbitrum.io/rpc",  # Arbitrum One
+        421613: "https://goerli-rollup.arbitrum.io/rpc",  # Arbitrum Goerli
+        10: "https://mainnet.optimism.io",  # Optimism
+        420: "https://goerli.optimism.io",  # Optimism Goerli
+        43114: "https://api.avax.network/ext/bc/C/rpc",  # Avalanche C-Chain
+        43113: "https://api.avax-test.network/ext/bc/C/rpc",  # Avalanche Fuji Testnet
+        56: "https://bsc-dataseed.binance.org",  # Binance Smart Chain
+        97: "https://data-seed-prebsc-1-s1.binance.org:8545",  # Binance Smart Chain Testnet
+    }
+    return chain_providers.get(chain_id, "http://localhost:8545")  # Default to local node if not found
+
+def send_eth(from_wallet_name, to_address, amount_in_eth, chain_id=None):
+    try:
+        # Get the wallet details
+        wallet = get_eth_wallet_details(from_wallet_name)
+        if not wallet:
+            return f"Error: Wallet '{from_wallet_name}' not found."
+
+        # If chain_id is provided, update the Web3 provider
+        if chain_id is not None:
+            provider_url = get_provider_url_for_chain_id(int(chain_id))
+            w3 = Web3(Web3.HTTPProvider(provider_url))
+        else:
+            # Use default Web3 instance if no chain_id is provided
+            w3 = Web3(Web3.HTTPProvider('http://localhost:8545'))
+
+        # Convert ETH to Wei
+        amount_in_wei = w3.to_wei(amount_in_eth, 'ether')
+
+        # Check if the wallet has enough balance
+        balance = w3.eth.get_balance(wallet['address'])
+        if balance < amount_in_wei:
+            return f"Error: Insufficient balance. Current balance: {w3.from_wei(balance, 'ether')} ETH"
+
+        # Prepare the transaction
+        nonce = w3.eth.get_transaction_count(wallet['address'])
+        tx = {
+            'nonce': nonce,
+            'to': to_address,
+            'value': amount_in_wei,
+            'gas': 21000,  # Standard gas limit for ETH transfers
+            'gasPrice': w3.eth.gas_price,
+        }
+
+        # Add chainId to the transaction if provided
+        if chain_id is not None:
+            tx['chainId'] = int(chain_id)
+
+        # Sign the transaction
+        signed_tx = w3.eth.account.sign_transaction(tx, wallet['private_key'])
+
+        # Send the transaction
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+        # Wait for the transaction receipt
+        tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        return f"Transaction sent successfully. Transaction hash: {tx_receipt.transactionHash.hex()}"
+
+    except InvalidAddress:
+        return "Error: Invalid 'to' address."
+    except Exception as e:
+        return f"Error sending transaction: {str(e)}"
 
 tools = [
     {
@@ -1005,6 +1216,10 @@ tools = [
                 "amount_in_eth": {
                     "type": "number",
                     "description": "The amount of ETH to send"
+                },
+                "chain_id": {
+                    "type": "number",
+                    "description": "The EVM chain ID (optional)"
                 }
             },
             "required": ["from_wallet_name", "to_address", "amount_in_eth"]
@@ -1019,9 +1234,27 @@ tools = [
                 "wallet_name": {
                     "type": "string",
                     "description": "The name of the stored wallet to check the balance"
+                },
+                "chain_id": {
+                    "type": "number",
+                    "description": "The EVM chain ID (optional)"
                 }
             },
             "required": ["wallet_name"]
+        }
+    },
+    {
+        "name": "get_chain_id",
+        "description": "Get the EVM chain ID for a given blockchain network name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chain_name": {
+                    "type": "string",
+                    "description": "The name of the blockchain network (e.g., 'ethereum', 'polygon', 'arbitrum')"
+                }
+            },
+            "required": ["chain_name"]
         }
     }
 ]
@@ -1103,11 +1336,18 @@ async def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, 
             result = send_eth(
                 tool_input["from_wallet_name"],
                 tool_input["to_address"],
-                tool_input["amount_in_eth"]
+                tool_input["amount_in_eth"],
+                tool_input.get("chain_id")  # chain_id is optional
             )
             is_error = result.startswith("Error")
         elif tool_name == "get_balance":
-            result = get_balance(tool_input["wallet_name"])
+            result = get_balance(
+                tool_input["wallet_name"],
+                tool_input.get("chain_id")  # chain_id is optional
+            )
+        elif tool_name == "get_chain_id":
+            result = get_chain_id_by_name(tool_input["chain_name"])
+            is_error = result.startswith("Chain ID not found")
         else:
             is_error = True
             result = f"Unknown tool: {tool_name}"
