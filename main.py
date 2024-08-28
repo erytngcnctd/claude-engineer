@@ -1583,7 +1583,7 @@ async def chat_with_claude(user_input, image_path=None, current_iteration=None, 
         elif content_block.type == "tool_use":
             tool_uses.append(content_block)
 
-    console.print(Panel(Markdown(assistant_response), title="Claude's Response", title_align="left", border_style="blue", expand=False))
+    console.print(Panel(Markdown(assistant_response), title="Claude's Initial Response", title_align="left", border_style="blue", expand=False))
 
     # Display files in context
     if file_contents:
@@ -1592,6 +1592,7 @@ async def chat_with_claude(user_input, image_path=None, current_iteration=None, 
         files_in_context = "No files in context. Read, create, or edit files to add."
     console.print(Panel(files_in_context, title="Files in Context", title_align="left", border_style="white", expand=False))
 
+    tool_results = []
     for tool_use in tool_uses:
         tool_name = tool_use.name
         tool_input = tool_use.input
@@ -1631,6 +1632,13 @@ async def chat_with_claude(user_input, image_path=None, current_iteration=None, 
             ]
         })
 
+        tool_results.append({
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "tool_result": tool_result["content"],
+            "is_error": tool_result["is_error"]
+        })
+
         # Update the file_contents dictionary if applicable
         if tool_name in ['create_files', 'edit_and_apply_multiple', 'read_file', 'read_multiple_files'] and not tool_result["is_error"]:
             if tool_name == 'create_files':
@@ -1650,6 +1658,7 @@ async def chat_with_claude(user_input, image_path=None, current_iteration=None, 
                 # The file_contents dictionary is already updated in the read_multiple_files function
                 pass
 
+    if tool_results:
         messages = filtered_conversation_history + current_conversation
 
         try:
@@ -1667,11 +1676,72 @@ async def chat_with_claude(user_input, image_path=None, current_iteration=None, 
             tool_checker_tokens['output'] += tool_response.usage.output_tokens
 
             tool_checker_response = ""
+            additional_tool_uses = []
             for tool_content_block in tool_response.content:
                 if tool_content_block.type == "text":
                     tool_checker_response += tool_content_block.text
-            console.print(Panel(Markdown(tool_checker_response), title="Claude's Response to Tool Result",  title_align="left", border_style="blue", expand=False))
+                elif tool_content_block.type == "tool_use":
+                    additional_tool_uses.append(tool_content_block)
+
+            console.print(Panel(Markdown(tool_checker_response), title="Claude's Response to Tool Results", title_align="left", border_style="blue", expand=False))
             assistant_response += "\n\n" + tool_checker_response
+
+            # Handle additional tool uses
+            if additional_tool_uses:
+                console.print(Panel("Claude has requested additional tool uses. Processing...", title="Additional Tools", style="bold yellow"))
+                for tool_use in additional_tool_uses:
+                    tool_result = await execute_tool(tool_use.name, tool_use.input)
+                    tool_results.append({
+                        "tool_name": tool_use.name,
+                        "tool_input": tool_use.input,
+                        "tool_result": tool_result["content"],
+                        "is_error": tool_result["is_error"]
+                    })
+                    current_conversation.append({
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tool_use.id,
+                                "name": tool_use.name,
+                                "input": tool_use.input
+                            }
+                        ]
+                    })
+                    current_conversation.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use.id,
+                                "content": tool_result["content"],
+                                "is_error": tool_result["is_error"]
+                            }
+                        ]
+                    })
+
+                # Process additional tool results
+                messages = filtered_conversation_history + current_conversation
+                final_response = client.messages.create(
+                    model=TOOLCHECKERMODEL,
+                    max_tokens=8000,
+                    system=update_system_prompt(current_iteration, max_iterations),
+                    extra_headers={"anthropic-beta": "max-tokens-3-5-sonnet-2024-07-15"},
+                    messages=messages,
+                    tools=tools,
+                    tool_choice={"type": "auto"}
+                )
+                tool_checker_tokens['input'] += final_response.usage.input_tokens
+                tool_checker_tokens['output'] += final_response.usage.output_tokens
+
+                final_checker_response = ""
+                for content_block in final_response.content:
+                    if content_block.type == "text":
+                        final_checker_response += content_block.text
+
+                console.print(Panel(Markdown(final_checker_response), title="Claude's Final Response", title_align="left", border_style="blue", expand=False))
+                assistant_response += "\n\n" + final_checker_response
+
         except APIError as e:
             error_message = f"Error in tool response: {str(e)}"
             console.print(Panel(error_message, title="Error", style="bold red"))
